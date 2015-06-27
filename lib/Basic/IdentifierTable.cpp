@@ -108,6 +108,7 @@ namespace {
     KEYNOMS = 0x01000,
     WCHARSUPPORT = 0x02000,
     HALFSUPPORT = 0x04000,
+    KEYCXXAMP = 0x08000,
     KEYALL = (0xffff & ~KEYNOMS) // Because KEYNOMS is used to exclude.
   };
 }
@@ -142,6 +143,7 @@ static void AddKeyword(StringRef Keyword,
   // in non-arc mode.
   else if (LangOpts.ObjC2 && (Flags & KEYARC)) AddResult = 2;
   else if (LangOpts.CPlusPlus && (Flags & KEYCXX11)) AddResult = 3;
+  else if (LangOpts.CPlusPlusAMP && (Flags & KEYCXXAMP)) AddResult = 2;
 
   // Don't add this keyword under MSVCCompat.
   if (LangOpts.MSVCCompat && (Flags & KEYNOMS))

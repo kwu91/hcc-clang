@@ -3101,8 +3101,8 @@ public:
     LongDoubleAlign = 128;
     SuitableAlign = 128;
     MaxVectorAlign = 256;
-    SizeType = UnsignedLong;
-    IntPtrType = SignedLong;
+    SizeType = UnsignedInt;
+    IntPtrType = SignedInt;
     DescriptionString = "e-m:o-p:32:32-f64:32:64-f80:128-n8:16:32-S128";
     HasAlignMac68kSupport = true;
   }

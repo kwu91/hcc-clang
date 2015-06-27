@@ -1877,3 +1877,20 @@ def LoopHint : Attr {
 
   let Documentation = [LoopHintDocs, UnrollHintDocs];
 }
+
+// C++AMP attributes
+
+def CXXAMPRestrictAMP : InheritableAttr {
+  let Spellings = [GNU<"amp">];
+  let Documentation = [Undocumented];
+}
+
+def CXXAMPRestrictAUTO : InheritableAttr {
+  let Spellings = [GNU<"auto">];
+  let Documentation = [Undocumented];
+}
+
+def CXXAMPRestrictCPU : InheritableAttr {
+  let Spellings = [GNU<"cpu">];
+  let Documentation = [Undocumented];
+}

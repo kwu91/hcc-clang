@@ -67,6 +67,7 @@ static bool hasFeature(StringRef Feature, const LangOptions &LangOpts,
            .Case("objc_arc", LangOpts.ObjCAutoRefCount)
            .Case("opencl", LangOpts.OpenCL)
            .Case("tls", Target.isTLSSupported())
+           .Case("cplusplusamp", LangOpts.CPlusPlusAMP)
            .Default(Target.hasFeature(Feature));
 }
 

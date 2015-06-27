@@ -212,6 +212,14 @@ namespace clang {
     CC_IntelOclBicc // __attribute__((intel_ocl_bicc))
   };
 
+  /// \brief C++AMP specifiers
+  enum CPPAMPSpecifier {
+    CPPAMP_None = 0x0,
+    CPPAMP_CPU  = 0x1,
+    CPPAMP_AMP  = 0x2,
+    CPPAMP_AUTO = 0x4
+  };
+
   /// \brief Checks whether the given calling convention is callee-cleanup.
   inline bool isCalleeCleanup(CallingConv CC) {
     switch (CC) {

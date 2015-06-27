@@ -146,4 +146,7 @@ def note_mt_message : Note<"[rewriter] %0">;
 def warn_arcmt_nsalloc_realloc : Warning<"[rewriter] call returns pointer to GC managed memory; it will become unmanaged in ARC">;
 def err_arcmt_nsinvocation_ownership : Error<"NSInvocation's %0 is not safe to be used with an object with ownership other than __unsafe_unretained">;
 
+// C++AMP
+def err_amp_ill_formed_functor : Error<
+  "Ill-formed functor class. Check restriction specifier of kernel.">;
 }
