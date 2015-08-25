@@ -384,6 +384,13 @@ TargetMachine *EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
     BackendArgs.push_back(CodeGenOpts.BackendOptions[i].c_str());
   if (CodeGenOpts.NoGlobalMerge)
     BackendArgs.push_back("-enable-global-merge=false");
+  if (LangOpts.CPlusPlusAMP && CodeGenOpts.AMPIsDevice) {
+    for (unsigned i = 0, e = BackendArgs.size(); i != e; ++i)
+      if (strcmp(BackendArgs[i], "-vectorize-loops") == 0) {
+          BackendArgs.erase(BackendArgs.begin() + i);
+          break;
+      }
+  }
   BackendArgs.push_back(nullptr);
   llvm::cl::ParseCommandLineOptions(BackendArgs.size() - 1,
                                     BackendArgs.data());

@@ -84,6 +84,7 @@ class CGObjCRuntime;
 class CGOpenCLRuntime;
 class CGOpenMPRuntime;
 class CGCUDARuntime;
+class CGAMPRuntime;
 class BlockFieldFlags;
 class FunctionArgList;
 
@@ -295,6 +296,7 @@ class CodeGenModule : public CodeGenTypeCache {
   CGOpenCLRuntime* OpenCLRuntime;
   CGOpenMPRuntime* OpenMPRuntime;
   CGCUDARuntime* CUDARuntime;
+  CGAMPRuntime* AMPRuntime;
   CGDebugInfo* DebugInfo;
   ARCEntrypoints *ARCData;
   llvm::MDNode *NoObjCARCExceptionsMetadata;
@@ -465,6 +467,7 @@ class CodeGenModule : public CodeGenTypeCache {
   void createOpenCLRuntime();
   void createOpenMPRuntime();
   void createCUDARuntime();
+  void createAMPRuntime();
 
   bool isTriviallyRecursive(const FunctionDecl *F);
   bool shouldEmitFunction(GlobalDecl GD);
@@ -606,6 +609,12 @@ public:
   /// Emit all elemental function vector variants in this module.
   void EmitCilkElementalVariants();
 
+
+  /// Return a reference to the configured C++AMP runtime.
+  CGAMPRuntime &getAMPRuntime() {
+    assert(AMPRuntime != nullptr);
+    return *AMPRuntime;
+  }
 
   ARCEntrypoints &getARCEntrypoints() const {
     assert(getLangOpts().ObjCAutoRefCount && ARCData != nullptr);

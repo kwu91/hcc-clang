@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "CodeGenModule.h"
+#include "CGAMPRuntime.h"
 #include "CGCUDARuntime.h"
 #include "CGCXXABI.h"
 #include "CGCall.h"
@@ -117,6 +118,8 @@ CodeGenModule::CodeGenModule(ASTContext &C, const CodeGenOptions &CGO,
     createOpenCLRuntime();
   if (LangOpts.CUDA)
     createCUDARuntime();
+  if (LangOpts.CPlusPlusAMP)
+    createAMPRuntime();
   if (LangOpts.OpenMP)
     createOpenMPRuntime();
 
@@ -190,6 +193,10 @@ void CodeGenModule::createOpenMPRuntime() {
 
 void CodeGenModule::createCUDARuntime() {
   CUDARuntime = CreateNVCUDARuntime(*this);
+}
+
+void CodeGenModule::createAMPRuntime() {
+  AMPRuntime = CreateAMPRuntime(*this);
 }
 
 void CodeGenModule::applyReplacements() {
@@ -555,6 +562,17 @@ StringRef CodeGenModule::getMangledName(GlobalDecl GD) {
     Str = II->getName();
   }
 
+  // C++ AMP specific
+  // AMD OpenCL stack has trouble accepting kernel with name longer than 240 characters
+  // Truncate kernel names to prevent this from happening
+  if (LangOpts.CPlusPlusAMP) {
+    if (Str.find(StringRef("__cxxamp_trampolineE")) != StringRef::npos) {
+      if (Str.size() > 240) {
+        Str = Str.slice(0, 240);
+      }
+    }
+  }
+
   auto &Mangled = Manglings.GetOrCreateValue(Str);
   Mangled.second = GD;
   return FoundStr = Mangled.first();
@@ -868,6 +886,15 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD,
 
   if (const SectionAttr *SA = FD->getAttr<SectionAttr>())
     F->setSection(SA->getName());
+
+  if (getLangOpts().OpenCL ||
+      (getLangOpts().CPlusPlusAMP && CodeGenOpts.AMPIsDevice)) {
+      if (F->getName()=="barrier") {
+          F->addFnAttr(llvm::Attribute::NoDuplicate);
+      }
+      if (FD->hasAttr<OpenCLKernelAttr>())
+          F->setCallingConv(llvm::CallingConv::SPIR_KERNEL);
+  }
 
   // A replaceable global allocation function does not act like a builtin by
   // default, only if it is invoked by a new-expression or delete-expression.
@@ -1339,6 +1366,23 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
     }
   }
 
+  // If this is C++AMP, be selective about which declarations we emit.
+  if (LangOpts.CPlusPlusAMP && !CodeGenOpts.AMPCPU) {
+    if (CodeGenOpts.AMPIsDevice) {
+      // If -famp-is-device switch is on, we are in GPU build path.
+      // Since we will emit both CPU codes and GPU codes to make C++ mangling
+      // algorithm happy, we won't reject anything other than ones with only
+      // restrict(cpu).  Another optimization pass will remove all CPU codes.
+      if (!Global->hasAttr<CXXAMPRestrictAMPAttr>() &&
+         Global->hasAttr<CXXAMPRestrictCPUAttr>())
+        return;
+    } else {
+      if (Global->hasAttr<CXXAMPRestrictAMPAttr>() &&
+         !Global->hasAttr<CXXAMPRestrictCPUAttr>())
+        return;
+    }
+  }
+
   // Ignore declarations, they will be emitted on their first use.
   if (const auto *FD = dyn_cast<FunctionDecl>(Global)) {
     // Forward declarations are emitted lazily on first use.
@@ -1494,6 +1538,23 @@ void CodeGenModule::CompleteDIClassType(const CXXMethodDecl* D) {
 
 void CodeGenModule::EmitGlobalDefinition(GlobalDecl GD, llvm::GlobalValue *GV) {
   const auto *D = cast<ValueDecl>(GD.getDecl());
+
+  // If this is C++AMP, be selective about which declarations we emit.
+  if (LangOpts.CPlusPlusAMP && !CodeGenOpts.AMPCPU) {
+    if (CodeGenOpts.AMPIsDevice) {
+      // If -famp-is-device switch is on, we are in GPU build path.
+      // Since we will emit both CPU codes and GPU codes to make C++ mangling
+      // algorithm happy, we won't reject anything other than ones with only
+      // restrict(cpu). Another optimization pass will remove all CPU codes.
+      if (!D->hasAttr<CXXAMPRestrictAMPAttr>()&&
+         D->hasAttr<CXXAMPRestrictCPUAttr>())
+        return;
+    } else {
+      if (D->hasAttr<CXXAMPRestrictAMPAttr>()&&
+         !D->hasAttr<CXXAMPRestrictCPUAttr>())
+        return;
+    }
+  }
 
   PrettyStackTraceDecl CrashInfo(const_cast<ValueDecl *>(D), D->getLocation(), 
                                  Context.getSourceManager(),
@@ -2438,9 +2499,11 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
     }
   }
 
-  if (!GV->isDeclaration()) {
-    getDiags().Report(D->getLocation(), diag::err_duplicate_mangled_name);
-    return;
+  if (!LangOpts.CPlusPlusAMP) {
+    if (!GV->isDeclaration()) {
+      getDiags().Report(D->getLocation(), diag::err_duplicate_mangled_name);
+      return;
+    }
   }
 
   if (GV->getType()->getElementType() != Ty) {
