@@ -403,6 +403,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.AsmVerbose = Args.hasArg(OPT_masm_verbose);
   Opts.ObjCAutoRefCountExceptions = Args.hasArg(OPT_fobjc_arc_exceptions);
   Opts.CUDAIsDevice = Args.hasArg(OPT_fcuda_is_device);
+  Opts.AMPIsDevice = Args.hasArg(OPT_famp_is_device);
+  Opts.AMPCPU = Args.hasArg(OPT_famp_cpu);
   Opts.CXAAtExit = !Args.hasArg(OPT_fno_use_cxa_atexit);
   Opts.CXXCtorDtorAliases = Args.hasArg(OPT_mconstructor_aliases);
   Opts.CodeModel = getCodeModel(Args, Diags);
@@ -907,6 +909,8 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
       .Case("cl", IK_OpenCL)
       .Case("cuda", IK_CUDA)
       .Case("c++", IK_CXX)
+      .Case("c++amp-kernel", IK_CXXAMP) // C++ AMP support
+      .Case("c++amp-kernel-cpu", IK_CXXAMP) // C++ AMP support
       .Case("objective-c", IK_ObjC)
       .Case("objective-c++", IK_ObjCXX)
       .Case("cpp-output", IK_PreprocessedC)
@@ -1121,6 +1125,7 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
     case IK_PreprocessedObjC:
       LangStd = LangStandard::lang_gnu99;
       break;
+    case IK_CXXAMP:
     case IK_CXX:
     case IK_PreprocessedCXX:
     case IK_ObjCXX:
@@ -1143,6 +1148,7 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
   Opts.GNUInline = !Std.isC99();
   Opts.HexFloats = Std.hasHexFloats();
   Opts.ImplicitInt = Std.hasImplicitInt();
+  Opts.CPlusPlusAMP = Std.isCPlusPlusAMP();
 
   // Set OpenCL Version.
   Opts.OpenCL = LangStd == LangStandard::lang_opencl || IK == IK_OpenCL;
@@ -1285,6 +1291,11 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
         if (!Std.isCPlusPlus())
           Diags.Report(diag::err_drv_argument_not_allowed_with)
             << A->getAsString(Args) << "CUDA";
+        break;
+      case IK_CXXAMP:
+        if (!Std.isCPlusPlusAMP())
+          Diags.Report(diag::err_drv_argument_not_allowed_with)
+            << A->getAsString(Args) << "C++AMP";
         break;
       default:
         break;
@@ -1580,6 +1591,13 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
     else
       Diags.Report(clang::diag::err_drv_omp_target_requires_main_file_path);
   }
+
+  // MCW C++ AMP: Decide host path or device path
+  // FIXME: OPT_fcuda_is_device seems redundant
+  Opts.DevicePath = Args.hasArg(OPT_fcuda_is_device) || Args.hasArg(OPT_famp_is_device);
+  Opts.AMPCPU = Args.hasArg(OPT_famp_cpu);
+  Opts.HSAExtension = Args.hasArg(OPT_fhsa_extension);
+  Opts.NoAutoAuto = Args.hasArg(OPT_fno_auto_auto);
 
   // Record whether the __DEPRECATED define was requested.
   Opts.Deprecated = Args.hasFlag(OPT_fdeprecated_macro,
