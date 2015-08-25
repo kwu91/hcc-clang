@@ -589,6 +589,22 @@ def omp_dump_host_ir : Flag<["-"], "omp-dump-host-ir">,
   HelpText<"Dump LLVM IR generated for OpenMP host">;
 def omp_dump_target_ir : Flag<["-"], "omp-dump-target-ir">,
   HelpText<"Dump LLVM IR generated for OpenMP offloading target">;
+
+//===----------------------------------------------------------------------===//
+// C++AMP Options
+//===----------------------------------------------------------------------===//
+
+def famp_is_device : Flag<["-"], "famp-is-device">,
+  HelpText<"Generate code for AMP kernels">;
+
+def famp_cpu : Flag<["-"], "famp-cpu">,
+  HelpText<"Generate code for AMP CPU kernels">;
+
+def fhsa_extension : Flag<["-"], "fhsa-ext">,
+  HelpText<"Enable HSA-specific rules for C++AMP kernels">;
+
+def fno_auto_auto : Flag<["-"], "fno-auto-auto">,
+  HelpText<"Disable auto-auto feature">;
 } // let Flags = [CC1Option]
 
 //===----------------------------------------------------------------------===//

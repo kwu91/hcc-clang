@@ -64,6 +64,10 @@ Driver::Driver(StringRef ClangExecutable,
   Name = llvm::sys::path::stem(ClangExecutable);
   Dir  = llvm::sys::path::parent_path(ClangExecutable);
 
+  // C++ AMP-specific
+  CXXAMPAssemblerPath = Dir + "/clamp-assemble";
+  CXXAMPLinkerPath = Dir + "/clamp-link";
+
   // Compute the path to the resource directory.
   StringRef ClangResourceDir(CLANG_RESOURCE_DIR);
   SmallString<128> P(Dir);
@@ -290,6 +294,20 @@ DerivedArgList *Driver::TranslateInputArgs(const InputArgList &Args) const {
 #endif
 
   return DAL;
+}
+
+// test if we are in C++AMP mode
+bool Driver::IsCXXAMP(const ArgList& Args) {
+  for (ArgList::const_iterator it = Args.begin(), ie = Args.end();
+       it != ie; ++it) {
+    Arg* A = *it;
+    if (A->getOption().getName().compare("std=") == 0 &&
+        A->getNumValues() == 1 &&
+        std::string("c++amp").compare(A->getValue(0)) == 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
@@ -1105,8 +1123,63 @@ void Driver::BuildInputs(const ToolChain &TC, DerivedArgList &Args,
         Ty = InputType;
       }
 
-      if (DiagnoseInputExistence(*this, Args, Value))
-        Inputs.push_back(std::make_pair(Ty, A));
+      if (DiagnoseInputExistence(*this, Args, Value)) {
+
+        // C++ AMP-specific
+        // For C++ source files, duplicate the input so we launch the compiler twice
+        // 1 for GPU compilation (TY_CXX_AMP), 1 for CPU compilation (TY_CXX)
+        if (IsCXXAMP(Args) && (Ty == types::TY_CXX)) {
+          Arg *FinalPhaseArg;
+          phases::ID FinalPhase = getFinalPhase(Args, &FinalPhaseArg);
+          switch (FinalPhase) {
+            // -E
+            case phases::Preprocess:
+              if (Args.hasArg(options::OPT_cxxamp_kernel_mode)) {
+                Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+              } else if (Args.hasArg(options::OPT_cxxamp_cpu_mode)) {
+                  Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
+              } else {
+                Inputs.push_back(std::make_pair(Ty, A));
+              }
+            break;
+
+            // -S
+            case phases::Compile:
+              if (Args.hasArg(options::OPT_cxxamp_kernel_mode)) {
+                Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+              } else if (Args.hasArg(options::OPT_cxxamp_cpu_mode)) {
+                  Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
+              } else {
+                Inputs.push_back(std::make_pair(Ty, A));
+              }
+            break;
+
+            // -c
+            case phases::Assemble:
+              if (Args.hasArg(options::OPT_cxxamp_cpu_mode))
+                  Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
+              Inputs.push_back(std::make_pair(Ty, A));
+              Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+            break;
+
+            // build executable
+            case phases::Link:
+              if (Args.hasArg(options::OPT_cxxamp_cpu_mode))
+                  Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
+              Inputs.push_back(std::make_pair(Ty, A));
+              Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+            break;
+
+            default:
+              Inputs.push_back(std::make_pair(Ty, A));
+            break;
+          }
+        } else {
+
+          // Standard compilation flow
+          Inputs.push_back(std::make_pair(Ty, A));
+        }
+      }
 
     } else if (A->getOption().matches(options::OPT__SLASH_Tc)) {
       StringRef Value = A->getValue();
@@ -1574,8 +1647,11 @@ void Driver::BuildJobs(Compilation &C) const {
         ++NumOutputs;
 
     if (NumOutputs > 1) {
-      Diag(clang::diag::err_drv_output_argument_with_multiple_files);
-      FinalOutput = nullptr;
+      // relax rule for C++AMP because we may have multiple outputs
+      if (!IsCXXAMP(C.getArgs())) {
+        Diag(clang::diag::err_drv_output_argument_with_multiple_files);
+        FinalOutput = nullptr;
+      }
     }
   }
 
@@ -1664,6 +1740,74 @@ void Driver::BuildJobs(Compilation &C) const {
   }
 }
 
+bool IsCXXAMPCompileJobAction(const JobAction* A) {
+  bool ret = false;
+  // detect if a compile job takes an C++ AMP input
+  if (isa<CompileJobAction>(A)) {
+    const ActionList& al = dyn_cast<CompileJobAction>(A)->getInputs();
+    if ((al.size() == 1) && (al[0]->getType() == types::TY_PP_CXX_AMP)) {
+      ret = true;
+    }
+  }
+  return ret;
+}
+
+bool IsCXXAMPCPUCompileJobAction(const JobAction* A) {
+  bool ret = false;
+  if (isa<CompileJobAction>(A)) {
+    const ActionList& al = dyn_cast<CompileJobAction>(A)->getInputs();
+    if ((al.size() == 1) && (al[0]->getType() == types::TY_PP_CXX_AMP_CPU)) {
+      ret = true;
+    }
+  }
+  return ret;
+}
+
+bool IsCXXAMPCPUAssembleJobAction(const JobAction* A) {
+  bool ret = false;
+  // detect if an assemble job takes an C++ AMP input
+  if (isa<AssembleJobAction>(A)) {
+    const ActionList& al = dyn_cast<AssembleJobAction>(A)->getInputs();
+    if ((al.size() == 1) && (isa<CompileJobAction>(*al[0]))) {
+      const ActionList& cl = dyn_cast<CompileJobAction>(al[0])->getInputs();
+      if ((cl.size() == 1) && (cl[0]->getType() == types::TY_PP_CXX_AMP_CPU)) {
+        ret = true;
+      }
+    }
+  }
+  return ret;
+}
+
+bool IsCXXAMPAssembleJobAction(const JobAction* A) {
+  bool ret = false;
+  // detect if an assemble job takes an C++ AMP input
+  if (isa<AssembleJobAction>(A)) {
+    const ActionList& al = dyn_cast<AssembleJobAction>(A)->getInputs();
+    if ((al.size() == 1) && (isa<CompileJobAction>(*al[0]))) {
+      const ActionList& cl = dyn_cast<CompileJobAction>(al[0])->getInputs();
+      if ((cl.size() == 1) && (cl[0]->getType() == types::TY_PP_CXX_AMP)) {
+        ret = true;
+      }
+    }
+  }
+  return ret;
+}
+
+bool IsCXXAMPLinkJobAction(const JobAction* A) {
+  bool ret = false;
+  if (isa<LinkJobAction>(A)) {
+    const ActionList& al = dyn_cast<LinkJobAction>(A)->getInputs();
+    for (size_t i = 0; i < al.size(); ++i) {
+      if (isa<JobAction>(*al[i]) && (IsCXXAMPAssembleJobAction(dyn_cast<JobAction>(al[i])) ||
+                                     IsCXXAMPCPUAssembleJobAction(dyn_cast<JobAction>(al[i])))) {
+        ret = true;
+        break;
+      }
+    }
+  }
+  return ret;
+}
+
 static const Tool *SelectToolForJob(Compilation &C, const ToolChain *TC,
                                     const JobAction *JA,
                                     const ActionList *&Inputs) {
@@ -1673,7 +1817,10 @@ static const Tool *SelectToolForJob(Compilation &C, const ToolChain *TC,
   // bottom up, so what we are actually looking for is an assembler job with a
   // compiler input.
 
-  if (TC->useIntegratedAs() &&
+  if (IsCXXAMPAssembleJobAction(JA) || IsCXXAMPCompileJobAction(JA) || IsCXXAMPLinkJobAction(JA) ||
+      IsCXXAMPCPUCompileJobAction(JA) || IsCXXAMPCPUAssembleJobAction(JA)) {
+  } else if (isa<LinkJobAction>(JA) && Driver::IsCXXAMP(C.getArgs())) {
+  } else if (TC->useIntegratedAs() &&
       !C.getArgs().hasArg(options::OPT_save_temps) &&
       !C.getArgs().hasArg(options::OPT_via_file_asm) &&
       !C.getArgs().hasArg(options::OPT__SLASH_FA) &&
@@ -1949,6 +2096,8 @@ const char *Driver::GetNamedOutputPath(Compilation &C,
     std::string TmpName =
       GetTemporaryPath(Split.first,
           types::getTypeTempSuffix(JA.getType(), IsCLMode()));
+    if (IsCXXAMPCPUCompileJobAction(&JA) || IsCXXAMPCPUAssembleJobAction(&JA))
+        TmpName += ".cpu";
     return C.addTempFile(C.getArgs().MakeArgString(TmpName.c_str()));
   }
 

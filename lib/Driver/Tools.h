@@ -116,6 +116,43 @@ using llvm::opt::ArgStringList;
                       const char *LinkingOutput) const override;
   };
 
+  /// \brief C++AMP kernel compiler tool.
+  class LLVM_LIBRARY_VISIBILITY CXXAMPCompile : public Clang {
+  public:
+    CXXAMPCompile(const ToolChain &TC) : Clang(TC) {}
+    virtual void ConstructJob(Compilation &C, const JobAction &JA,
+                              const InputInfo &Output,
+                              const InputInfoList &Inputs,
+                              const llvm::opt::ArgList &TCArgs,
+                              const char *LinkingOutput) const;
+  };
+
+  class LLVM_LIBRARY_VISIBILITY CXXAMPCPUCompile : public Clang {
+  public:
+    CXXAMPCPUCompile(const ToolChain &TC) : Clang(TC) {}
+    virtual void ConstructJob(Compilation &C, const JobAction &JA,
+                              const InputInfo &Output,
+                              const InputInfoList &Inputs,
+                              const llvm::opt::ArgList &TCArgs,
+                              const char *LinkingOutput) const;
+  };
+
+  /// \brief C++AMP kernel assembler tool.
+  class LLVM_LIBRARY_VISIBILITY CXXAMPAssemble : public Tool {
+  public:
+    CXXAMPAssemble(const ToolChain &TC) : Tool("clamp-assemble",
+                                               "C++AMP kernel assembler", TC) {}
+    virtual bool hasGoodDiagnostics() const { return true; }
+    virtual bool hasIntegratedAssembler() const { return false; }
+    virtual bool hasIntegratedCPP() const { return false; }
+
+    virtual void ConstructJob(Compilation &C, const JobAction &JA,
+                              const InputInfo &Output,
+                              const InputInfoList &Inputs,
+                              const llvm::opt::ArgList &TCArgs,
+                              const char *LinkingOuput) const;
+  };
+
   /// gcc - Generic GCC tool implementations.
 namespace gcc {
   class LLVM_LIBRARY_VISIBILITY Common : public Tool {
@@ -456,6 +493,7 @@ namespace gnutools {
   class LLVM_LIBRARY_VISIBILITY Link : public Tool  {
   public:
     Link(const ToolChain &TC) : Tool("GNU::Link", "linker", TC) {}
+    Link(const ToolChain &TC, const char* Name) : Tool(Name, "linker", TC) {}
 
     bool hasIntegratedCPP() const override { return false; }
     bool isLinkJob() const override { return true; }
@@ -465,6 +503,24 @@ namespace gnutools {
                       const InputInfoList &Inputs,
                       const llvm::opt::ArgList &TCArgs,
                       const char *LinkingOutput) const override;
+  protected:
+    virtual void ConstructLinkerJob(Compilation &C, const JobAction &JA,
+                                  const InputInfo &Output,
+                                  const InputInfoList &Inputs,
+                                  const llvm::opt::ArgList &Args,
+                                  const char *LinkingOutput,
+                                  ArgStringList &CmdArgs) const;
+  };
+  // \brief C++AMP linker.
+  class LLVM_LIBRARY_VISIBILITY CXXAMPLink : public Link {
+  public:
+    CXXAMPLink(const ToolChain &TC) : Link(TC, "clamp-link") {}
+
+    virtual void ConstructJob(Compilation &C, const JobAction &JA,
+                              const InputInfo &Output,
+                              const InputInfoList &Inputs,
+                              const llvm::opt::ArgList &TCArgs,
+                              const char *LinkingOuput) const;
   };
 }
   /// minix -- Directly call GNU Binutils assembler and linker
