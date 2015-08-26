@@ -23,6 +23,7 @@
 #include "clang/AST/UnresolvedSet.h"
 #include "clang/Sema/SemaFixItUtils.h"
 #include "clang/Sema/TemplateDeduction.h"
+#include "clang/Sema/Scope.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Allocator.h"
@@ -779,7 +780,8 @@ namespace clang {
     /// Find the best viable function on this overload set, if it exists.
     OverloadingResult BestViableFunction(Sema &S, SourceLocation Loc,
                                          OverloadCandidateSet::iterator& Best,
-                                         bool UserDefinedConversion = false);
+                                         bool UserDefinedConversion = false,
+                                         Scope* SC = 0);
 
     void NoteCandidates(Sema &S,
                         OverloadCandidateDisplayKind OCD,
@@ -792,7 +794,8 @@ namespace clang {
                                  const OverloadCandidate& Cand1,
                                  const OverloadCandidate& Cand2,
                                  SourceLocation Loc,
-                                 bool UserDefinedConversion = false);
+                                 bool UserDefinedConversion = false,
+                                 Scope* SC = 0);
 } // end namespace clang
 
 #endif // LLVM_CLANG_SEMA_OVERLOAD_H

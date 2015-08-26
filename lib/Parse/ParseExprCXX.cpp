@@ -1044,6 +1044,22 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
     if (TryConsumeToken(tok::kw_mutable, MutableLoc))
       DeclEndLoc = MutableLoc;
 
+    // Parse C++AMP restrict specifier
+    unsigned cppampSpec = CPPAMP_None;
+    if (getLangOpts().CPlusPlusAMP) {
+      cppampSpec = ParseRestrictionSpecification(D, Attr, DeclEndLoc);
+
+      if (getLangOpts().HSAExtension && !getLangOpts().NoAutoAuto) {
+        // auto-auto: automatically append restrict(auto) in case no restriction specifier is found
+        if (cppampSpec == CPPAMP_None) {
+          cppampSpec = CPPAMP_AUTO;
+          IdentifierInfo *II = &PP.getIdentifierTable().get("auto");
+          assert(II);
+          Attr.addNew(II, DeclEndLoc, 0, DeclEndLoc, /*0, DeclEndLoc,*/ 0, 0, AttributeList::AS_GNU);
+        }
+      }
+    }
+
     // Parse exception-specification[opt].
     ExceptionSpecificationType ESpecType = EST_None;
     SourceRange ESpecRange;
@@ -1055,8 +1071,14 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
                                                DynamicExceptionRanges,
                                                NoexceptExpr);
 
-    if (ESpecType != EST_None)
+    if (ESpecType != EST_None) {
       DeclEndLoc = ESpecRange.getEnd();
+
+      // C++AMP specific, reject exception specifiers for amp-restricted functions
+      if (getLangOpts().CPlusPlusAMP && (cppampSpec & CPPAMP_AMP)) {
+        Diag(ESpecRange.getBegin(), diag::err_amp_no_throw);
+      }
+    }
 
     // Parse attribute-specifier[opt].
     MaybeParseCXX11Attributes(Attr, &DeclEndLoc);
@@ -1163,8 +1185,24 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
                                                DeclLoc, DeclEndLoc, D,
                                                TrailingReturnType),
                   Attr, DeclEndLoc);
+  }  else if (Tok.is(tok::l_brace)) {
+    // Next is compound-statement.
+    // Parse C++AMP restrict specifier though the lambda expression has no params, so that
+    // context inside lambda compound-statement is distinguished from cpu codes or amp codes.
+    // And the lambda's calloperator will be attached with the same restrictions as its parent
+    // function's if any. Such lambda expression is as follows,
+    //   [] {
+    //     // The compound-statement
+    //   };
+    if (getLangOpts().CPlusPlusAMP) {
+      // Place restriction after r_square
+      SourceLocation LambdaEndLoc = Intro.Range.getEnd();
+      ParsedAttributes Attr(AttrFactory);
+      ParseRestrictionSpecification(D, Attr, LambdaEndLoc);
+      D.getAttrListRef() = Attr.getList();
+      D.getAttributePool().takeAllFrom(Attr.getPool());
+    }
   }
-  
 
   // FIXME: Rename BlockScope -> ClosureScope if we decide to continue using
   // it.

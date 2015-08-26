@@ -1551,7 +1551,11 @@ public:
                                   bool IsAddressOfOperand,
                                   CorrectionCandidateCallback *CCC = nullptr);
 
+  bool DiagnoseCXXAMPDecl(Decl* Dcl, bool CheckContainer = false, bool IsInfer = false);
   Decl *ActOnDeclarator(Scope *S, Declarator &D);
+
+  bool IsCXXAMPTileStatic(Declarator &D);
+  void DiagnosticCXXAMPTileStatic(Declarator &D, Decl *Dcl);
 
   NamedDecl *HandleDeclarator(Scope *S, Declarator &D,
                               MultiTemplateParamsArg TemplateParameterLists);
@@ -1682,6 +1686,7 @@ public:
   /// \c constexpr in C++11 or has an 'auto' return type in C++14).
   bool canSkipFunctionBody(Decl *D);
 
+  void TryCXXAMPRestrictionInferring(Decl *D, Stmt *Body);
   void computeNRVO(Stmt *Body, sema::FunctionScopeInfo *Scope);
   Decl *ActOnFinishFunctionBody(Decl *Decl, Stmt *Body);
   Decl *ActOnFinishFunctionBody(Decl *Decl, Stmt *Body, bool IsInstantiation);
@@ -2043,6 +2048,10 @@ public:
     /// non-function.
     Ovl_NonFunction
   };
+
+  void DiagnoseCXXAMPDtorOverload(FunctionDecl *New,
+                           const LookupResult &Old);
+
   OverloadKind CheckOverload(Scope *S,
                              FunctionDecl *New,
                              const LookupResult &OldDecls,
@@ -2318,6 +2327,11 @@ public:
                                             OverloadCandidateSet& CandidateSet,
                                             bool PartialOverloading = false);
 
+  bool IsInAMPRestricted();
+  // Determine if in CPU and/or AMP restricted codes
+  bool IsInAnyExplicitRestricted();
+  void GetCXXAMPParentRestriction(Scope* SC, bool& ParentCPU,
+    bool& ParentAMP, bool&ParentAUTO);
   // Emit as a 'note' the specific overload candidate
   void NoteOverloadCandidate(FunctionDecl *Fn, QualType DestType = QualType());
 
@@ -2394,6 +2408,9 @@ public:
                                            LookupResult &MemberLookup,
                                            OverloadCandidateSet *CandidateSet,
                                            Expr *Range, ExprResult *CallExpr);
+
+  void DiagnoseCXXAMPOverloadedCallExpr(SourceLocation LParenLoc,
+                                  FunctionDecl* Callee);
 
   ExprResult BuildOverloadedCallExpr(Scope *S, Expr *Fn,
                                      UnresolvedLookupExpr *ULE,
@@ -2563,8 +2580,15 @@ public:
                                                    bool RValueThis,
                                                    bool ConstThis,
                                                    bool VolatileThis);
+public:
+  bool IsIncompatibleType(const Type* Ty, bool CheckContainer = false, bool IsInfer = false);
 
 private:
+  bool IsCXXAMPUnsupportedPointerType(const Type* Ty,
+    bool CheckContainer = false, bool IsInfer = false);
+  bool IsCXXAMPUnsupportedReferenceType(const Type* Ty,
+    bool CheckContainer = false, bool IsInfer = false);
+
   bool CppLookupName(LookupResult &R, Scope *S);
 
   // \brief The set of known/encountered (unique, canonicalized) NamespaceDecls.
@@ -3583,6 +3607,9 @@ public:
                                 ParmVarDecl *Param,
                                 const Expr *ArgExpr);
 
+  void DiagnoseCXXAMPMethodCallExpr(SourceLocation LParenLoc,
+                                  CXXMethodDecl *Callee);
+
   /// ActOnCallExpr - Handle a call to Fn with the specified array of arguments.
   /// This provides the location of the left/right parens and a list of comma
   /// locations.
@@ -3635,6 +3662,17 @@ public:
                                         SourceLocation Loc,
                                         bool GNUSyntax,
                                         ExprResult Init);
+  void InheritSMFDtorIntersections(CXXRecordDecl* RDecl,
+                                bool& CPUAttr, bool& AMPAttr,
+                                bool& ParentCPUAttr, bool& ParentAMPAttr);
+  void InheritSMFCtorIntersections(CXXRecordDecl* RDecl,
+                                bool& CPUAttr, bool& AMPAttr,
+                                bool& ParentCPUAttr, bool& ParentAMPAttr,
+                                int flag, bool ConstParam = true);
+  void InheritSMFMethodIntersections(CXXRecordDecl* RDecl,
+                                bool& CPUAttr, bool& AMPAttr,
+                                bool& ParentCPUAttr, bool& ParentAMPAttr,
+                                int flag, bool ConstParam = true);
 
   ExprResult ActOnBinOp(Scope *S, SourceLocation TokLoc,
                         tok::TokenKind Kind, Expr *LHSExpr, Expr *RHSExpr);
@@ -4100,6 +4138,22 @@ public:
   /// \brief Defines an implicitly-declared copy assignment operator.
   void DefineImplicitCopyAssignment(SourceLocation CurrentLocation,
                                     CXXMethodDecl *MethodDecl);
+
+  /// \brief Defines an AMP CUP-side serialize function.
+  void DefineAmpCpuSerializeFunction(SourceLocation CurrentLocation,
+                                         CXXMethodDecl *MethodDecl);
+  /// \brief Defines an AMP GPU-side deserialize function.
+  void DefineAmpGpuDeSerializeFunction(SourceLocation CurrentLocation,
+                                         CXXMethodDecl *MethodDecl);
+  /// \brief Declare trampoline name lookup code for AMP CPU-side
+  void DeclareAMPTrampolineName(CXXRecordDecl *ClassDecl,
+      DeclarationName Name);
+  /// \brief Declare trampoline code for AMP GPU-side entry
+  void DeclareAMPTrampoline(CXXRecordDecl *ClassDecl,
+      DeclarationName Name);
+  /// \brief Define trampoline code for AMP GPU-side entry
+  void DefineAMPTrampoline(SourceLocation CurrentLocation,
+                               CXXMethodDecl *OperatorCall);
 
   /// \brief Declare the implicit move assignment operator for the given class.
   ///
@@ -4922,6 +4976,18 @@ public:
   /// \returns true if any work was done, false otherwise.
   bool DefineUsedVTables();
 
+  /// \brief Test if a given class requires a
+  /// C++AMP deserializer declaration
+  bool NeedAMPDeserializer(CXXRecordDecl *ClassDecl);
+  /// \brief Test if a given class has a C++AMP deserializer declaration
+  bool HasDeclaredAMPDeserializer(CXXRecordDecl *ClassDecl);
+
+  typedef SmallVector<QualType, 16> AMPDeserializerArgs;
+  void DeclareAMPSerializer(CXXRecordDecl *ClassDecl,
+                            DeclarationName Name);
+  void DeclareAMPDeserializer(CXXRecordDecl *ClassDecl,
+                              AMPDeserializerArgs *Args);
+
   void AddImplicitlyDeclaredMembersToClass(CXXRecordDecl *ClassDecl);
 
   void ActOnMemInitializers(Decl *ConstructorDecl,
@@ -5423,6 +5489,11 @@ public:
     /// via template argument deduction.
     CTAK_DeducedFromArrayBound
   };
+
+  void DiagnoseCXXAMPTemplateArgument(NamedDecl *Param,
+                             const TemplateArgumentLoc &AL,
+                             NamedDecl *Template,
+                             SourceLocation TemplateLoc);
 
   bool CheckTemplateArgument(NamedDecl *Param,
                              TemplateArgumentLoc &Arg,
@@ -8099,6 +8170,8 @@ public:
     /// represent it in the AST.
     Incompatible
   };
+
+  void DiagnoseCXXAMPExpr(Expr* Stripped, ExprResult &HS, bool DiagnoseWhenStatic=false);
 
   /// DiagnoseAssignmentResult - Emit a diagnostic, if required, for the
   /// assignment conversion type specified by ConvTy.  This returns true if the
