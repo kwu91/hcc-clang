@@ -1679,6 +1679,21 @@ static void checkIntToPointerCast(bool CStyle, SourceLocation Loc,
                                   Sema &Self) {
   QualType SrcType = SrcExpr->getType();
 
+  // C++AMP
+  if (!CStyle && SrcType->isIntegralType(Self.Context)
+      && !SrcType->isBooleanType()
+      && !SrcType->isEnumeralType()
+      && !SrcExpr->isIntegerConstantExpr(Self.Context)
+      && Self.Context.getTypeSize(DestType) > Self.Context.getTypeSize(SrcType)) {
+      // C++AMP
+      if(Self.getLangOpts().CPlusPlusAMP) {
+        if(Self.IsInAMPRestricted()) {
+          Self.Diag(Loc, diag::err_amp_int_to_pointer_cast)<< SrcType << DestType;
+          return;
+        }
+    }
+  }
+
   // Not warning on reinterpret_cast, boolean, constant expressions, etc
   // are not explicit design choices, but consistent with GCC's behavior.
   // Feel free to modify them if you've reason/evidence for an alternative.
@@ -1688,6 +1703,13 @@ static void checkIntToPointerCast(bool CStyle, SourceLocation Loc,
       && !SrcExpr->isIntegerConstantExpr(Self.Context)
       && Self.Context.getTypeSize(DestType) >
          Self.Context.getTypeSize(SrcType)) {
+    // C++AMP
+    if(Self.getLangOpts().CPlusPlusAMP) {
+      if(Self.IsInAMPRestricted()) {
+        Self.Diag(Loc, diag::err_amp_int_to_pointer_cast)<< SrcType << DestType;
+        return;
+      }
+    }
     // Separate between casts to void* and non-void* pointers.
     // Some APIs use (abuse) void* for something like a user context,
     // and often that value is an integer even if it isn't a pointer itself.
@@ -1762,6 +1784,18 @@ static TryCastResult TryReinterpretCast(Sema &Self, ExprResult &SrcExpr,
       msg = 0; SrcExpr = ExprError();
       return TC_NotApplicable;
     }
+    if(Self.getLangOpts().CPlusPlusAMP && SrcType->isIntegralOrEnumerationType() &&
+      !Self.Context.getPointerType(SrcType).isNull()) {
+      // The expression,
+      //     int foo;
+      //     int *& r = (int*&)foo;  // Error
+      // where at this point,
+      //    SrcType is 'int' which will be coverted to 'int*'
+      //    DestType is 'int*&' which will be converted to be 'int**'
+      // Note that, the trick is 'int*&' is taken as 'int**'
+      if(Self.getLangOpts().CPlusPlusAMP && Self.IsInAMPRestricted())
+        Self.Diag(OpRange.getBegin(), diag::err_amp_int_to_pointer_cast)<< SrcType << DestType;
+    }
 
     // This code does this transformation for the checked types.
     DestType = Self.Context.getPointerType(DestTypeTmp->getPointeeType());
@@ -1811,6 +1845,13 @@ static TryCastResult TryReinterpretCast(Sema &Self, ExprResult &SrcExpr,
     // A valid member pointer cast.
     assert(!IsLValueCast);
     Kind = CK_ReinterpretMemberPointer;
+    // C++AMP
+    if(Self.getLangOpts().CPlusPlusAMP && Self.IsInAnyExplicitRestricted()) {
+      // FIMXE: It is not clear if it is necessary to reject since usage of this DestType is unknown
+      // in current context, e.g. there is only defintion without any usage.
+      msg = diag::err_amp_bad_reinterpret_cast_from_pointer_to_functionptr;
+      return TC_Failed;
+    }
     return TC_Success;
   }
 
@@ -1890,6 +1931,13 @@ static TryCastResult TryReinterpretCast(Sema &Self, ExprResult &SrcExpr,
 
   if (DestType->isIntegralType(Self.Context)) {
     assert(srcIsPtr && "One type must be a pointer");
+    // C++AMP
+    if(Self.getLangOpts().CPlusPlusAMP && !Self.getLangOpts().HSAExtension) {
+      if(Self.IsInAnyExplicitRestricted()) {
+          msg = diag::err_amp_bad_reinterpret_cast_from_pointer_to_int;
+          return TC_Failed;
+        }
+    }
     // C++ 5.2.10p4: A pointer can be explicitly converted to any integral
     //   type large enough to hold it; except in Microsoft mode, where the
     //   integral type size doesn't matter (except we don't allow bool).
@@ -2391,6 +2439,28 @@ ExprResult Sema::BuildCStyleCastExpr(SourceLocation LPLoc,
   if (Op.SrcExpr.isInvalid())
     return ExprError();
 
+  // C++AMP [2.4.1.2.1]
+  if(getLangOpts().CPlusPlusAMP) {
+    if(IsInAMPRestricted()) {
+      if (IntegerLiteral *I = dyn_cast<IntegerLiteral>(CastExpr->IgnoreParenCasts())){
+        // Case by case
+        //    int xxxn = (int) 0x2ffffffffLL;  // Error
+        //    int xxxn = (int) 0xffffffffLL;    // Correct
+        QualType TargetType = CastTypeInfo->getType();
+        llvm::APInt ResultVal = I->getValue();
+        if(TargetType->isSpecificBuiltinType(BuiltinType::Int) ||
+          TargetType->isSpecificBuiltinType(BuiltinType::UInt)) {
+          #if 0
+          unsigned IntSize = Context.getTargetInfo().getIntWidth();
+          #endif
+          // Does it fit in a long or longlong? if yes, reject using higher precision integer
+          if (ResultVal.getActiveBits() > (sizeof(int)*8)) {
+            Diag(CastExpr->getExprLoc(), diag::err_amp_constant_too_big);
+          }
+        }
+      }
+    }
+  }
   return Op.complete(CStyleCastExpr::Create(Context, Op.ResultType,
                               Op.ValueKind, Op.Kind, Op.SrcExpr.get(),
                               &Op.BasePath, CastTypeInfo, LPLoc, RPLoc));

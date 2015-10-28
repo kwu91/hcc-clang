@@ -788,7 +788,11 @@ bool Parser::isDeclarationAfterDeclarator() {
 /// \brief Determine whether the current token, if it occurs after a
 /// declarator, indicates the start of a function definition.
 bool Parser::isStartOfFunctionDefinition(const ParsingDeclarator &Declarator) {
-  assert(Declarator.isFunctionDeclarator() && "Isn't a function declarator");
+  // not necessarily a declarator when used in CXXAMP to parse 'auto'
+  if(Actions.getLangOpts().CPlusPlusAMP) {
+  } else {
+    assert(Declarator.isFunctionDeclarator() && "Isn't a function declarator");
+  }
   if (Tok.is(tok::l_brace))   // int X() {}
     return true;
   
@@ -1689,7 +1693,7 @@ bool Parser::TryAnnotateTypeOrScopeTokenAfterScopeSpec(bool EnteringContext,
 /// Note that this routine emits an error if you call it with ::new or ::delete
 /// as the current tokens, so only call it in contexts where these are invalid.
 bool Parser::TryAnnotateCXXScopeToken(bool EnteringContext) {
-  assert(getLangOpts().CPlusPlus &&
+  assert((getLangOpts().CPlusPlus || getLangOpts().CPlusPlusAMP) &&
          "Call sites of this function should be guarded by checking for C++");
   assert((Tok.is(tok::identifier) || Tok.is(tok::coloncolon) ||
           (Tok.is(tok::annot_template_id) && NextToken().is(tok::coloncolon)) ||
