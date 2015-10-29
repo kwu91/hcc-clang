@@ -668,7 +668,10 @@ ExprResult Parser::ParseCXXIdExpression(bool isAddressOfOperand) {
 ExprResult Parser::ParseLambdaExpression() {
   // Parse lambda-introducer.
   LambdaIntroducer Intro;
-  Optional<unsigned> DiagID = ParseLambdaIntroducer(Intro);
+
+  ParsedAttributes AttrIntro(AttrFactory);
+
+  Optional<unsigned> DiagID = ParseLambdaIntroducer(Intro, AttrIntro);
   if (DiagID) {
     Diag(Tok, DiagID.getValue());
     SkipUntil(tok::r_square, StopAtSemi);
@@ -677,7 +680,7 @@ ExprResult Parser::ParseLambdaExpression() {
     return ExprError();
   }
 
-  return ParseLambdaExpressionAfterIntroducer(Intro);
+  return ParseLambdaExpressionAfterIntroducer(Intro, AttrIntro);
 }
 
 /// TryParseLambdaExpression - Use lookahead and potentially tentative
@@ -686,14 +689,17 @@ ExprResult Parser::ParseLambdaExpression() {
 ///
 /// If we are not looking at a lambda expression, returns ExprError().
 ExprResult Parser::TryParseLambdaExpression() {
+#if 0
   assert(getLangOpts().CPlusPlus11
          && Tok.is(tok::l_square)
          && "Not at the start of a possible lambda expression.");
+#endif
 
   const Token Next = NextToken(), After = GetLookAheadToken(2);
 
   // If lookahead indicates this is a lambda...
-  if (Next.is(tok::r_square) ||     // []
+  if (Next.is(tok::kw___attribute) || // __attribute
+      Next.is(tok::r_square) ||     // []
       Next.is(tok::equal) ||        // [=
       (Next.is(tok::amp) &&         // [&] or [&,
        (After.is(tok::r_square) ||
@@ -716,10 +722,11 @@ ExprResult Parser::TryParseLambdaExpression() {
   // a lambda introducer first, and fall back if that fails.
   // (TryParseLambdaIntroducer never produces any diagnostic output.)
   LambdaIntroducer Intro;
-  if (TryParseLambdaIntroducer(Intro))
+  ParsedAttributes AttrIntro(AttrFactory);
+  if (TryParseLambdaIntroducer(Intro, AttrIntro))
     return ExprEmpty();
 
-  return ParseLambdaExpressionAfterIntroducer(Intro);
+  return ParseLambdaExpressionAfterIntroducer(Intro, AttrIntro);
 }
 
 /// \brief Parse a lambda introducer.
@@ -732,10 +739,19 @@ ExprResult Parser::TryParseLambdaExpression() {
 /// \return A DiagnosticID if it hit something unexpected. The location for
 ///         for the diagnostic is that of the current token.
 Optional<unsigned> Parser::ParseLambdaIntroducer(LambdaIntroducer &Intro,
+                                                 ParsedAttributes &AttrIntro,
                                                  bool *SkippedInits) {
   typedef Optional<unsigned> DiagResult;
 
+  // try parse attributes before parameter list
+  SourceLocation DeclEndLoc = Intro.Range.getEnd();
+  if (getLangOpts().CPlusPlusAMP) {
+    MaybeParseGNUAttributes(AttrIntro, &DeclEndLoc);
+  }
+
+#if 0
   assert(Tok.is(tok::l_square) && "Lambda expressions begin with '['.");
+#endif
   BalancedDelimiterTracker T(*this, tok::l_square);
   T.consumeOpen();
 
@@ -962,11 +978,11 @@ Optional<unsigned> Parser::ParseLambdaIntroducer(LambdaIntroducer &Intro,
 /// TryParseLambdaIntroducer - Tentatively parse a lambda introducer.
 ///
 /// Returns true if it hit something unexpected.
-bool Parser::TryParseLambdaIntroducer(LambdaIntroducer &Intro) {
+bool Parser::TryParseLambdaIntroducer(LambdaIntroducer &Intro, ParsedAttributes& AttrIntro) {
   TentativeParsingAction PA(*this);
 
   bool SkippedInits = false;
-  Optional<unsigned> DiagID(ParseLambdaIntroducer(Intro, &SkippedInits));
+  Optional<unsigned> DiagID(ParseLambdaIntroducer(Intro, AttrIntro, &SkippedInits));
 
   if (DiagID) {
     PA.Revert();
@@ -977,7 +993,8 @@ bool Parser::TryParseLambdaIntroducer(LambdaIntroducer &Intro) {
     // Parse it again, but this time parse the init-captures too.
     PA.Revert();
     Intro = LambdaIntroducer();
-    DiagID = ParseLambdaIntroducer(Intro);
+    AttrIntro.clear();
+    DiagID = ParseLambdaIntroducer(Intro, AttrIntro);
     assert(!DiagID && "parsing lambda-introducer failed on reparse");
     return false;
   }
@@ -989,7 +1006,8 @@ bool Parser::TryParseLambdaIntroducer(LambdaIntroducer &Intro) {
 /// ParseLambdaExpressionAfterIntroducer - Parse the rest of a lambda
 /// expression.
 ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
-                     LambdaIntroducer &Intro) {
+                     LambdaIntroducer &Intro,
+                     ParsedAttributes &AttrIntro) {
   SourceLocation LambdaBeginLoc = Intro.Range.getBegin();
   Diag(LambdaBeginLoc, diag::warn_cxx98_compat_lambda);
 
@@ -1007,13 +1025,20 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
   TemplateParameterDepthRAII CurTemplateDepthTracker(TemplateParameterDepth);
   Actions.PushLambdaScope();    
 
+  // try parse attributes before parameter list
+  SourceLocation DeclEndLoc = Intro.Range.getBegin();
+  ParsedAttributes AttrPre(AttrFactory);
+  if (getLangOpts().CPlusPlusAMP) {
+    MaybeParseGNUAttributes(AttrPre, &DeclEndLoc);
+  }
+
   if (Tok.is(tok::l_paren)) {
     ParseScope PrototypeScope(this,
                               Scope::FunctionPrototypeScope |
                               Scope::FunctionDeclarationScope |
                               Scope::DeclScope);
 
-    SourceLocation DeclEndLoc;
+    //SourceLocation DeclEndLoc;
     BalancedDelimiterTracker T(*this, tok::l_paren);
     T.consumeOpen();
     SourceLocation LParenLoc = T.getOpenLocation();
@@ -1058,6 +1083,13 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
           Attr.addNew(II, DeclEndLoc, 0, DeclEndLoc, /*0, DeclEndLoc,*/ 0, 0, AttributeList::AS_GNU);
         }
       }
+    }
+
+    if (getLangOpts().CPlusPlusAMP && getLangOpts().DevicePath) {
+      // take all attributed parsed before introducer
+      Attr.takeAllFrom(AttrIntro);
+      // take all attributes parsed before parameter list
+      Attr.takeAllFrom(AttrPre);
     }
 
     // Parse exception-specification[opt].
@@ -1119,7 +1151,7 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
                                            TrailingReturnType),
                   Attr, DeclEndLoc);
   } else if (Tok.is(tok::kw_mutable) || Tok.is(tok::arrow) ||
-             Tok.is(tok::kw___attribute) ||
+             /*Tok.is(tok::kw___attribute) ||*/
              (Tok.is(tok::l_square) && NextToken().is(tok::l_square))) {
     // It's common to forget that one needs '()' before 'mutable', an attribute
     // specifier, or the result type. Deal with this.

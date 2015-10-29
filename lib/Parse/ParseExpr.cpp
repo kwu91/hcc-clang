@@ -1182,6 +1182,7 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
     cutOffParsing();
     return ExprError();
   }
+  case tok::kw___attribute:  // XXX: hack to allow __attribute__ in front of a lambda introducer
   case tok::l_square:
     if (getLangOpts().CPlusPlus11) {
       if (getLangOpts().ObjC1) {
