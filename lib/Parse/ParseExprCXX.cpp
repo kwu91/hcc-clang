@@ -1074,7 +1074,7 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
     if (getLangOpts().CPlusPlusAMP) {
       cppampSpec = ParseRestrictionSpecification(D, Attr, DeclEndLoc);
 
-      if (getLangOpts().HSAExtension && !getLangOpts().NoAutoAuto) {
+      if (getLangOpts().HSAExtension && getLangOpts().AutoAuto) {
         // auto-auto: automatically append restrict(auto) in case no restriction specifier is found
         if (cppampSpec == CPPAMP_None) {
           cppampSpec = CPPAMP_AUTO;

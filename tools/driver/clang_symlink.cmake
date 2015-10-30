@@ -21,6 +21,7 @@ set(clang "clang${EXECUTABLE_SUFFIX}")
 set(clangxx "clang++${EXECUTABLE_SUFFIX}")
 set(clang_cl "clang-cl${EXECUTABLE_SUFFIX}")
 set(cl "cl${EXECUTABLE_SUFFIX}")
+set(hcc "hcc${EXECUTABLE_SUFFIX}")
 
 message("Creating clang++ executable based on ${clang}")
 
@@ -32,6 +33,12 @@ message("Creating clang-cl executable based on ${clang}")
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E ${CLANGXX_LINK_OR_COPY} "${clang}" "${clang_cl}"
+  WORKING_DIRECTORY "${bindir}")
+
+message("Creating hcc executable based on ${clang}")
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E ${CLANGXX_LINK_OR_COPY} "${clang}" "${hcc}"
   WORKING_DIRECTORY "${bindir}")
 
 if (WIN32)

@@ -199,10 +199,18 @@ CodeGenFunction::CreateStaticVarDecl(const VarDecl &D,
   llvm::Type *LTy = CGM.getTypes().ConvertTypeForMem(Ty);
   unsigned AddrSpace =
    CGM.GetGlobalVarAddressSpace(&D, CGM.getContext().getTargetAddressSpace(Ty));
+
+  // Local address space cannot have an initializer.
+  llvm::Constant *Init = nullptr;
+  if (Ty.getAddressSpace() != LangAS::opencl_local)
+    Init = CGM.EmitNullConstant(D.getType());
+  else
+    Init = llvm::UndefValue::get(getTypes().ConvertTypeForMem(D.getType()));
+
   llvm::GlobalVariable *GV =
     new llvm::GlobalVariable(CGM.getModule(), LTy,
                              Ty.isConstant(getContext()), Linkage,
-                             CGM.EmitNullConstant(D.getType()), Name, nullptr,
+                             Init, Name, nullptr,
                              llvm::GlobalVariable::NotThreadLocal,
                              AddrSpace);
   GV->setAlignment(getContext().getDeclAlign(&D).getQuantity());

@@ -713,6 +713,12 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
   if (!hasUnwindExceptions(LangOpts))
     B.addAttribute(llvm::Attribute::NoUnwind);
 
+  if (D->hasAttr<HCGridLaunchAttr>()) {
+    // hc_grid_launch attribute implies noinline and will win over always_inline
+    B.addAttribute("hc_grid_launch");
+    B.addAttribute(llvm::Attribute::NoInline);
+  }
+
   if (D->hasAttr<NakedAttr>()) {
     // Naked implies noinline: we should not be inlining such functions.
     B.addAttribute(llvm::Attribute::Naked);
@@ -889,8 +895,9 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD,
 
   if (getLangOpts().OpenCL ||
       (getLangOpts().CPlusPlusAMP && CodeGenOpts.AMPIsDevice)) {
-      if (F->getName()=="barrier") {
+      if (F->getName()=="amp_barrier") {
           F->addFnAttr(llvm::Attribute::NoDuplicate);
+          F->addFnAttr(llvm::Attribute::NoUnwind);
       }
       if (FD->hasAttr<OpenCLKernelAttr>())
           F->setCallingConv(llvm::CallingConv::SPIR_KERNEL);

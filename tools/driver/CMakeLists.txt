@@ -74,6 +74,15 @@ add_custom_command(TARGET clang POST_BUILD
 set_property(DIRECTORY APPEND
   PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${clang_cl})
 
+# Create the hcc symlink in the build directory.
+set(hcc "${LLVM_RUNTIME_OUTPUT_INTDIR}/hcc${CMAKE_EXECUTABLE_SUFFIX}")
+add_custom_command(TARGET clang POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E ${CLANGXX_LINK_OR_COPY} "${clang_binary}" "${hcc}"
+    WORKING_DIRECTORY "${LLVM_RUNTIME_OUTPUT_INTDIR}")
+
+set_property(DIRECTORY APPEND
+  PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${clang_cl})
+
 install(TARGETS clang
   RUNTIME DESTINATION bin)
 

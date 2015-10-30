@@ -67,6 +67,8 @@ Driver::Driver(StringRef ClangExecutable,
   // C++ AMP-specific
   CXXAMPAssemblerPath = Dir + "/clamp-assemble";
   CXXAMPLinkerPath = Dir + "/clamp-link";
+  HCHostAssemblerPath = Dir + "/hc-host-assemble";
+  HCKernelAssemblerPath = Dir + "/hc-kernel-assemble";
 
   // Compute the path to the resource directory.
   StringRef ClangResourceDir(CLANG_RESOURCE_DIR);
@@ -293,6 +295,11 @@ DerivedArgList *Driver::TranslateInputArgs(const InputArgList &Args) const {
   }
 #endif
 
+  // make -hc an alias of -std=c++amp -Xclang -fhsa-ext as of now
+  if (Args.hasArg(options::OPT_hc_mode)) {
+    DAL->AddJoinedArg(0, Opts->getOption(options::OPT_std_EQ), "c++amp");
+    DAL->AddPositionalArg(0, Opts->getOption(options::OPT_Xclang), "-fhsa-ext");
+  }
   return DAL;
 }
 
@@ -1158,16 +1165,26 @@ void Driver::BuildInputs(const ToolChain &TC, DerivedArgList &Args,
             case phases::Assemble:
               if (Args.hasArg(options::OPT_cxxamp_cpu_mode))
                   Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
-              Inputs.push_back(std::make_pair(Ty, A));
-              Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+              if(Args.hasArg(options::OPT_hc_mode)) {
+                Inputs.push_back(std::make_pair(types::TY_HC_HOST, A));
+                Inputs.push_back(std::make_pair(types::TY_HC_KERNEL, A));
+              } else {
+                Inputs.push_back(std::make_pair(Ty, A));
+                Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+              }
             break;
 
             // build executable
             case phases::Link:
               if (Args.hasArg(options::OPT_cxxamp_cpu_mode))
                   Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
-              Inputs.push_back(std::make_pair(Ty, A));
-              Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+              if(Args.hasArg(options::OPT_hc_mode)) {
+                Inputs.push_back(std::make_pair(types::TY_HC_HOST, A));
+                Inputs.push_back(std::make_pair(types::TY_HC_KERNEL, A));
+              } else {
+                Inputs.push_back(std::make_pair(Ty, A));
+                Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
+              }
             break;
 
             default:
@@ -1734,6 +1751,14 @@ void Driver::BuildJobs(Compilation &C) const {
           continue;
       }
 
+      // Suppress the warning if this is -Xclang -fhsa-ext
+      if (Opt.getKind() == Option::SeparateClass) {
+        if (Opt.getName() == "Xclang" &&
+            A->containsValue("-fhsa-ext")) {
+          continue;
+        }
+      }
+
       Diag(clang::diag::warn_drv_unused_argument)
         << A->getAsString(C.getArgs());
     }
@@ -1746,6 +1771,18 @@ bool IsCXXAMPCompileJobAction(const JobAction* A) {
   if (isa<CompileJobAction>(A)) {
     const ActionList& al = dyn_cast<CompileJobAction>(A)->getInputs();
     if ((al.size() == 1) && (al[0]->getType() == types::TY_PP_CXX_AMP)) {
+      ret = true;
+    }
+  }
+  return ret;
+}
+
+bool IsHCHostCompileJobAction(const JobAction* A) {
+  bool ret = false;
+  // detect if a compile job takes a HC input on host side
+  if (isa<CompileJobAction>(A)) {
+    const ActionList& al = dyn_cast<CompileJobAction>(A)->getInputs();
+    if ((al.size() == 1) && (al[0]->getType() == types::TY_PP_HC_HOST)) {
       ret = true;
     }
   }
@@ -1772,6 +1809,42 @@ bool IsCXXAMPCPUAssembleJobAction(const JobAction* A) {
       const ActionList& cl = dyn_cast<CompileJobAction>(al[0])->getInputs();
       if ((cl.size() == 1) && (cl[0]->getType() == types::TY_PP_CXX_AMP_CPU)) {
         ret = true;
+      }
+    }
+  }
+  return ret;
+}
+
+bool IsHCKernelAssembleJobAction(const JobAction* A) {
+  bool ret = false;
+  // detect if an assemble job takes a HC input on GPU side
+  if (isa<AssembleJobAction>(A)) {
+    const ActionList& al = dyn_cast<AssembleJobAction>(A)->getInputs();
+    if ((al.size() == 1) && (isa<CompileJobAction>(*al[0]))) {
+      const ActionList& cl = dyn_cast<CompileJobAction>(al[0])->getInputs();
+      if ((cl.size() == 1) && (isa<PreprocessJobAction>(*cl[0]))) {
+        const ActionList& il = dyn_cast<PreprocessJobAction>(cl[0])->getInputs();
+        if((il.size() == 1) && (il[0]->getType() == types::TY_HC_KERNEL)) {
+          ret = true;
+        }
+      }
+    }
+  }
+  return ret;
+}
+
+bool IsHCHostAssembleJobAction(const JobAction* A) {
+  bool ret = false;
+  // detect if an assemble job takes a HC input on host side
+  if (isa<AssembleJobAction>(A)) {
+    const ActionList& al = dyn_cast<AssembleJobAction>(A)->getInputs();
+    if ((al.size() == 1) && (isa<CompileJobAction>(*al[0]))) {
+      const ActionList& cl = dyn_cast<CompileJobAction>(al[0])->getInputs();
+      if ((cl.size() == 1) && (isa<PreprocessJobAction>(*cl[0]))) {
+        const ActionList& il = dyn_cast<PreprocessJobAction>(cl[0])->getInputs();
+        if((il.size() == 1) && (il[0]->getType() == types::TY_HC_HOST)) {
+          ret = true;
+        }
       }
     }
   }
@@ -1818,7 +1891,8 @@ static const Tool *SelectToolForJob(Compilation &C, const ToolChain *TC,
   // compiler input.
 
   if (IsCXXAMPAssembleJobAction(JA) || IsCXXAMPCompileJobAction(JA) || IsCXXAMPLinkJobAction(JA) ||
-      IsCXXAMPCPUCompileJobAction(JA) || IsCXXAMPCPUAssembleJobAction(JA)) {
+      IsCXXAMPCPUCompileJobAction(JA) || IsCXXAMPCPUAssembleJobAction(JA) || IsHCHostCompileJobAction(JA) ||
+      IsHCKernelAssembleJobAction(JA) || IsHCHostAssembleJobAction(JA)) {
   } else if (isa<LinkJobAction>(JA) && Driver::IsCXXAMP(C.getArgs())) {
   } else if (TC->useIntegratedAs() &&
       !C.getArgs().hasArg(options::OPT_save_temps) &&

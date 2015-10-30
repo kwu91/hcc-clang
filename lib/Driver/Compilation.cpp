@@ -221,8 +221,14 @@ void Compilation::ExecuteJob(const Job &J,
   } else {
     const JobList *Jobs = cast<JobList>(&J);
     for (JobList::const_iterator it = Jobs->begin(), ie = Jobs->end();
-         it != ie; ++it)
+         it != ie; ++it) {
       ExecuteJob(**it, FailingCommands);
+
+      // if any command is failing, abort compilation
+      if (!FailingCommands.empty()) {
+        return;
+      }
+    }
   }
 }
 

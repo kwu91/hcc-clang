@@ -2539,9 +2539,20 @@ static std::string getMSCompatibilityVersion(const char *VersionStr) {
 }
 
 extern bool IsCXXAMPCompileJobAction(const JobAction* A);
+extern bool IsHCHostCompileJobAction(const JobAction* A);
 extern bool IsCXXAMPCPUCompileJobAction(const JobAction* A);
 
 void CXXAMPCompile::ConstructJob(Compilation &C, const JobAction &JA,
+                                 const InputInfo &Output,
+                                 const InputInfoList &Inputs,
+                                 const ArgList &Args,
+                                 const char *LinkingOutput) const {
+  // call base clang job construction
+  Clang::ConstructJob(C, JA, Output, Inputs, Args, LinkingOutput);
+
+}
+
+void HCHostCompile::ConstructJob(Compilation &C, const JobAction &JA,
                                  const InputInfo &Output,
                                  const InputInfoList &Inputs,
                                  const ArgList &Args,
@@ -2584,6 +2595,60 @@ void CXXAMPAssemble::ConstructJob(Compilation &C, const JobAction &JA,
     Output.getInputArg().renderAsInput(Args, CmdArgs);
 
   const char *Exec = getToolChain().getDriver().getCXXAMPAssembleProgramPath();
+
+  C.addCommand(new Command(JA, *this, Exec, CmdArgs));
+}
+
+void HCKernelAssemble::ConstructJob(Compilation &C, const JobAction &JA,
+                                  const InputInfo &Output,
+                                  const InputInfoList &Inputs,
+                                  const ArgList &Args,
+                                  const char *LinkingOutput) const {
+  assert(Inputs.size() == 1 && "Unable to handle multiple inputs.");
+
+  ArgStringList CmdArgs;
+  for (InputInfoList::const_iterator
+         it = Inputs.begin(), ie = Inputs.end(); it != ie; ++it) {
+    const InputInfo &II = *it;
+    if (II.isFilename())
+      CmdArgs.push_back(II.getFilename());
+    else
+      II.getInputArg().renderAsInput(Args, CmdArgs);
+  }
+
+  if (Output.isFilename())
+    CmdArgs.push_back(Output.getFilename());
+  else
+    Output.getInputArg().renderAsInput(Args, CmdArgs);
+
+  const char *Exec = getToolChain().getDriver().getHCKernelAssembleProgramPath();
+
+  C.addCommand(new Command(JA, *this, Exec, CmdArgs));
+}
+
+void HCHostAssemble::ConstructJob(Compilation &C, const JobAction &JA,
+                                   const InputInfo &Output,
+                                   const InputInfoList &Inputs,
+                                   const ArgList &Args,
+                                   const char *LinkingOutput) const {
+  assert(Inputs.size() == 1 && "Unable to handle multiple inputs.");
+
+  ArgStringList CmdArgs;
+  for (InputInfoList::const_iterator
+         it = Inputs.begin(), ie = Inputs.end(); it != ie; ++it) {
+    const InputInfo &II = *it;
+    if (II.isFilename())
+      CmdArgs.push_back(II.getFilename());
+    else
+      II.getInputArg().renderAsInput(Args, CmdArgs);
+  }
+
+  if (Output.isFilename())
+    CmdArgs.push_back(Output.getFilename());
+  else
+    Output.getInputArg().renderAsInput(Args, CmdArgs);
+
+  const char *Exec = getToolChain().getDriver().getHCHostAssembleProgramPath();
 
   C.addCommand(new Command(JA, *this, Exec, CmdArgs));
 }
@@ -2640,8 +2705,12 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back(Args.MakeArgString(Inputs[0].getBaseInput()));
   }
 
-  // add Kalmar define
-  CmdArgs.push_back("-D__KALMAR_CC__=1");
+  // add Kalmar macros, based on compiler modes
+  if (Args.hasArg(options::OPT_hc_mode)) {
+    CmdArgs.push_back("-D__KALMAR_HC__=1");
+  } else if (D.IsCXXAMP(Args)) {
+    CmdArgs.push_back("-D__KALMAR_AMP__=1");
+  }
 
   // C++ AMP-specific
   if (IsCXXAMPCompileJobAction(&JA)) {
@@ -2653,7 +2722,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fno-common");
     //CmdArgs.push_back("-m32"); // added below using -triple
     CmdArgs.push_back("-O2");
-    CmdArgs.push_back("-fno-unroll-loops");
   } else if(IsCXXAMPCPUCompileJobAction(&JA)){
     // path to compile kernel codes on CPU
     CmdArgs.push_back("-famp-is-device");
@@ -3556,7 +3624,23 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-O3");
       D.Diag(diag::warn_O4_is_O3);
     } else {
-      A->render(Args, CmdArgs);
+      // C++ AMP-specific
+      if (IsCXXAMPCompileJobAction(&JA)) {
+        // ignore -O0 and -O1 for GPU compilation paths
+        // because inliner would not be enabled and will cause compilation fail
+        if (A->getOption().matches(options::OPT_O0)) {
+          D.Diag(diag::warn_drv_O0_ignored_for_GPU);
+        } else if (A->containsValue("1")) {
+          D.Diag(diag::warn_drv_O1_ignored_for_GPU);
+        } else {
+          // let all other optimization levels pass
+          A->render(Args, CmdArgs);
+        }
+      } else {
+
+        // normal cases
+        A->render(Args, CmdArgs);
+      }
     }
   }
 
@@ -4633,7 +4717,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   // C++ AMP-specific
-  if (IsCXXAMPCompileJobAction(&JA) || IsCXXAMPCPUCompileJobAction(&JA)) {
+  if (IsCXXAMPCompileJobAction(&JA) || IsCXXAMPCPUCompileJobAction(&JA) || IsHCHostCompileJobAction(&JA)) {
     CmdArgs.push_back("-emit-llvm-bc");
   }
 
@@ -7827,10 +7911,14 @@ void gnutools::CXXAMPLink::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasArg(options::OPT_v))
     CmdArgs.push_back("--verbose");
 
-  // suppress OpenCL code production if HSA extension is used
-  for (arg_iterator it = Args.filtered_begin(options::OPT_Xclang); it != Args.filtered_end(); ++it) {
-    if ((*it)->containsValue("-fhsa-ext")) {
-      CmdArgs.push_back("--disable-opencl");
+  // suppress OpenCL code production if HSA extension or HC mode is used
+  if (Args.hasArg(options::OPT_hc_mode)) {
+    CmdArgs.push_back("--disable-opencl");
+  } else {
+    for (arg_iterator it = Args.filtered_begin(options::OPT_Xclang); it != Args.filtered_end(); ++it) {
+      if ((*it)->containsValue("-fhsa-ext")) {
+        CmdArgs.push_back("--disable-opencl");
+      }
     }
   }
   Link::ConstructLinkerJob(C, JA, Output, Inputs, Args, LinkingOutput, CmdArgs);
