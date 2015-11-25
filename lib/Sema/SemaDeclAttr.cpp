@@ -4128,7 +4128,9 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
 
   // Ignore C++11 attributes on declarator chunks: they appertain to the type
   // instead.
-  if (Attr.isCXX11Attribute() && !IncludeCXX11Attributes)
+  if (Attr.isCXX11Attribute() && !IncludeCXX11Attributes &&
+      Attr.getKind() != AttributeList::AT_HC_HC &&
+      Attr.getKind() != AttributeList::AT_HC_CPU)
     return;
 
   // Unknown attributes are automatically warned on. Target-specific attributes
@@ -4245,9 +4247,11 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
   case AttributeList::AT_CUDAGlobal:
     handleGlobalAttr(S, D, Attr);
     break;
+  case AttributeList::AT_HC_HC:
   case AttributeList::AT_CXXAMPRestrictAMP:
     handleDeviceAttr(S, D, Attr);
     break;
+  case AttributeList::AT_HC_CPU:
   case AttributeList::AT_CXXAMPRestrictCPU:
     handleHostAttr(S, D, Attr);
     break;

@@ -89,14 +89,14 @@ void CGAMPRuntime::EmitTrampolineBody(CodeGenFunction &CGF,
         for (CXXMethodDecl::param_iterator MCPI = 
   	      MemberDeserializer->param_begin(),
   	    MCPE = MemberDeserializer->param_end(); MCPI!=MCPE; ++MCPI, ++I) {
-  	Expr *ArgDeclRef = DeclRefExpr::Create(CGM.getContext(),
-  	    NestedNameSpecifierLoc(),
-  	    SourceLocation(),
-  	    const_cast<VarDecl *>(*I),
-  	    false,
-  	    SourceLocation(),
-  	    (*MCPI)->getType(), VK_RValue);
-  	MemberArgDeclRefs.push_back(ArgDeclRef);
+          Expr *ArgDeclRef = DeclRefExpr::Create(CGM.getContext(),
+              NestedNameSpecifierLoc(),
+              SourceLocation(),
+              const_cast<VarDecl *>(*I),
+              false,
+              SourceLocation(),
+              (*MCPI)->getType(), VK_RValue);
+           MemberArgDeclRefs.push_back(ArgDeclRef);
         }
         // Allocate "this" for member referenced objects
         llvm::AllocaInst *mai =
@@ -107,17 +107,64 @@ void CGAMPRuntime::EmitTrampolineBody(CodeGenFunction &CGF,
   	  mai, ConstExprIterator(&*MemberArgDeclRefs.begin()),
   	  ConstExprIterator(&*MemberArgDeclRefs.end()));
         DeserializerArgs.add(RValue::get(mai), (*CPI)->getType());
-      } else {
-        // capture by refernce for HSA
-        Expr *ArgDeclRef = DeclRefExpr::Create(CGM.getContext(),
-  	  NestedNameSpecifierLoc(),
-  	  SourceLocation(),
-  	  const_cast<VarDecl *>(*I), false,
-  	  SourceLocation(),
-  	  (*I)->getType(), VK_RValue);
-        RValue ArgRV = CGF.EmitAnyExpr(ArgDeclRef);
-        DeserializerArgs.add(ArgRV, CGM.getContext().getPointerType(MemberType));
-        ++I;
+      } else { // HSA extension check
+        if (MemberType.getTypePtr()->isClassType()) {
+          std::string Info = MemberType.getAsString();
+
+          // hc::array should still be serialized as traditional C++AMP objects
+          if (Info.find("hc::array<") != std::string::npos) {
+            CXXRecordDecl *MemberClass = MemberType.getTypePtr()->getAsCXXRecordDecl();
+            CXXConstructorDecl *MemberDeserializer =
+            dyn_cast<CXXConstructorDecl>(
+                MemberClass->getCXXAMPDeserializationConstructor());
+            assert(MemberDeserializer);
+            std::vector<Stmt *>MemberArgDeclRefs;
+            for (CXXMethodDecl::param_iterator MCPI =
+                  MemberDeserializer->param_begin(),
+                MCPE = MemberDeserializer->param_end(); MCPI!=MCPE; ++MCPI, ++I) {
+              Expr *ArgDeclRef = DeclRefExpr::Create(CGM.getContext(),
+                  NestedNameSpecifierLoc(),
+                  SourceLocation(),
+                  const_cast<VarDecl *>(*I),
+                  false,
+                  SourceLocation(),
+                  (*MCPI)->getType(), VK_RValue);
+               MemberArgDeclRefs.push_back(ArgDeclRef);
+            }
+            // Allocate "this" for member referenced objects
+            llvm::AllocaInst *mai =
+            CGF.CreateMemTemp(MemberType);
+            // Emit code to call the deserializing constructor of temp objects
+            CGF.EmitCXXConstructorCall(MemberDeserializer,
+              Ctor_Complete, false, false,
+              mai, ConstExprIterator(&*MemberArgDeclRefs.begin()),
+              ConstExprIterator(&*MemberArgDeclRefs.end()));
+            DeserializerArgs.add(RValue::get(mai), (*CPI)->getType());
+
+          } else {
+            // capture by refernce for HSA
+            Expr *ArgDeclRef = DeclRefExpr::Create(CGM.getContext(),
+                NestedNameSpecifierLoc(),
+                SourceLocation(),
+                const_cast<VarDecl *>(*I), false,
+                SourceLocation(),
+                (*I)->getType(), VK_RValue);
+            RValue ArgRV = CGF.EmitAnyExpr(ArgDeclRef);
+            DeserializerArgs.add(ArgRV, CGM.getContext().getPointerType(MemberType));
+            ++I;
+          }
+        } else {
+          // capture by refernce for HSA
+          Expr *ArgDeclRef = DeclRefExpr::Create(CGM.getContext(),
+              NestedNameSpecifierLoc(),
+              SourceLocation(),
+              const_cast<VarDecl *>(*I), false,
+              SourceLocation(),
+              (*I)->getType(), VK_RValue);
+          RValue ArgRV = CGF.EmitAnyExpr(ArgDeclRef);
+          DeserializerArgs.add(ArgRV, CGM.getContext().getPointerType(MemberType));
+          ++I;
+        }
       } // HSA extension check
     } else {
       Expr *ArgDeclRef = DeclRefExpr::Create(CGM.getContext(),
