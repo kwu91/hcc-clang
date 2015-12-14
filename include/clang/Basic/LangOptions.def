@@ -136,6 +136,7 @@ LANGOPT(DevicePath        , 1, 0, "C++AMP Device Path")
 LANGOPT(AMPCPU            , 1, 0, "C++AMP CPU Path")
 LANGOPT(HSAExtension      , 1, 0, "C++AMP Extension for HSA")
 LANGOPT(AutoAuto          , 1, 0, "Enable auto-auto")
+LANGOPT(AutoCompileForAccelerator, 1, 0, "Enable auto-compile-for-accelerator")
 
 LANGOPT(AssumeSaneOperatorNew , 1, 1, "implicit __attribute__((malloc)) for C++'s new operators")
 LANGOPT(SizedDeallocation , 1, 0, "enable sized deallocation functions")
