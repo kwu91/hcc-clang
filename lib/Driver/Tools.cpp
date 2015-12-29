@@ -4552,6 +4552,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                    false))
     CmdArgs.push_back("-fasm-blocks");
 
+  // Turn off vectorization support for GPU kernels for now
+  if (!IsCXXAMPCompileJobAction(&JA) && !IsCXXAMPCPUCompileJobAction(&JA))  {
+
   // Enable vectorization per default according to the optimization level
   // selected. For optimization levels that want vectorization we use the alias
   // option to simplify the hasFlag logic.
@@ -4561,6 +4564,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasFlag(options::OPT_fvectorize, VectorizeAliasOption,
                    options::OPT_fno_vectorize, EnableVec))
     CmdArgs.push_back("-vectorize-loops");
+
+  }
 
   // -fslp-vectorize is enabled based on the optimization level selected.
   bool EnableSLPVec = shouldEnableVectorizerAtOLevel(Args, true);
