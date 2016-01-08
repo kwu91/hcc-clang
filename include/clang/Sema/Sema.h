@@ -2327,6 +2327,7 @@ public:
                                             OverloadCandidateSet& CandidateSet,
                                             bool PartialOverloading = false);
 
+  bool IsGridLaunchKernel();
   bool IsInAMPRestricted();
   // Determine if in CPU and/or AMP restricted codes
   bool IsInAnyExplicitRestricted();
