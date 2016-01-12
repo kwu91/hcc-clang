@@ -8294,14 +8294,16 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
         isExplicitSpecialization || isFunctionTemplateSpecialization);
   }
 
+  // Place this check before returning FunctionTemplate
   if (NewFD->hasAttr<HCGridLaunchAttr>()) {
-    // Check if first parameter has grid_launch_parm type
     for(auto PVD : NewFD->parameters()) {
       QualType PT = PVD->getType();
+      // Check if any parameters are passed by reference
       if(PT->getAs<ReferenceType>()) {
         Diag(PVD->getLocation(), diag::err_hc_grid_launch_ref);
         D.setInvalidType();
       }
+      // Check if first parameter has grid_launch_parm type
       else if (PVD == *(NewFD->param_begin())) {
         std::size_t found = PT.getAsString().find("grid_launch_parm");
         if (found == std::string::npos) {
