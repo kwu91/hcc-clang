@@ -4046,7 +4046,6 @@ bool CodeGenModule::OpenMPSupportStackTy::locateInCurrentOffloadingMap(const Dec
         &&  "Unexpected expression in map clause!");
 
     const DeclRefExpr *DE = 0;
-    bool hasRange = false;
 
     // Get the declaration associated with the entry in the map clause under
     // test
@@ -4054,7 +4053,6 @@ bool CodeGenModule::OpenMPSupportStackTy::locateInCurrentOffloadingMap(const Dec
       if (const ImplicitCastExpr *T2 =
                                     dyn_cast<ImplicitCastExpr>(T1->getBase()))
         if (const DeclRefExpr *T3 = dyn_cast<DeclRefExpr>(T2->getSubExpr())){
-          hasRange = true;
           DE = T3;
         }
     } else {
@@ -4091,7 +4089,6 @@ bool CodeGenModule::OpenMPSupportStackTy::locateInPreviousOffloadingMap(const De
           &&  "Unexpected expression in map clause!");
 
       const DeclRefExpr *DE = 0;
-      bool hasRange = false;
 
       // Get the declaration associated with the entry in the map clause under
       // test
@@ -4099,7 +4096,6 @@ bool CodeGenModule::OpenMPSupportStackTy::locateInPreviousOffloadingMap(const De
         if (const ImplicitCastExpr *T2 =
                                       dyn_cast<ImplicitCastExpr>(T1->getBase()))
           if (const DeclRefExpr *T3 = dyn_cast<DeclRefExpr>(T2->getSubExpr())){
-            hasRange = true;
             DE = T3;
           }
       } else {
@@ -4137,7 +4133,6 @@ bool CodeGenModule::OpenMPSupportStackTy::locateInPreviousOffloadingMap(const De
           &&  "Unexpected expression in map clause!");
 
       const DeclRefExpr *DE = 0;
-      bool hasRange = false;
 
       // Get the declaration associated with the entry in the map clause under
       // test
@@ -4145,7 +4140,6 @@ bool CodeGenModule::OpenMPSupportStackTy::locateInPreviousOffloadingMap(const De
         if (const ImplicitCastExpr *T2 =
                                       dyn_cast<ImplicitCastExpr>(T1->getBase()))
           if (const DeclRefExpr *T3 = dyn_cast<DeclRefExpr>(T2->getSubExpr())){
-            hasRange = true;
             DE = T3;
           }
       } else {
