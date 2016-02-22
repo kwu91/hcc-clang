@@ -2648,11 +2648,6 @@ void HCHostAssemble::ConstructJob(Compilation &C, const JobAction &JA,
   else
     Output.getInputArg().renderAsInput(Args, CmdArgs);
 
-  // hot-fix to support -fPIC for host objects in HC mode
-  bool IsPIC = Args.hasArg(options::OPT_fPIC);
-  if (IsPIC) {
-    CmdArgs.push_back("-fPIC");
-  }
 
   const char *Exec = getToolChain().getDriver().getHCHostAssembleProgramPath();
 
