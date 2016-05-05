@@ -2994,8 +2994,11 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   // If we are in OpenMP target mode we do not support exceptions thrown by the
   // constructors
 
+  // If we can in HCC Device Path we do not support exceptions thrown
+
   llvm::BasicBlock *InvokeDest = nullptr;
   if (!CGM.getLangOpts().OpenMPTargetMode
+      && !CGM.getLangOpts().DevicePath
       && !Attrs.hasAttribute(llvm::AttributeSet::FunctionIndex,
                              llvm::Attribute::NoUnwind))
     InvokeDest = getInvokeDest();
