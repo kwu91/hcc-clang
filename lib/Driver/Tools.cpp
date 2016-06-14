@@ -7961,6 +7961,28 @@ void gnutools::CXXAMPLink::ConstructJob(Compilation &C, const JobAction &JA,
       }
     }
   }
+
+  // specify AMDGPU target
+  if (Args.hasArg(options::OPT_amdgpu_target_EQ)) {
+    Arg* AMDGPUTargetArg = Args.getLastArg(options::OPT_amdgpu_target_EQ);
+    assert(AMDGPUTargetArg->getNumValues() == 1);
+    // check if valid AMDGPU target is specified
+    StringRef AMDGPUTarget(AMDGPUTargetArg->getValue(0));
+    if (AMDGPUTarget.equals("fiji") ||
+        AMDGPUTarget.equals("kaveri") ||
+        AMDGPUTarget.equals("carrizo") ||
+        AMDGPUTarget.equals("hawaii")) {
+      Twine LinkerArgTwine = Twine("--amdgpu-target=") + AMDGPUTarget;
+      SmallString<32> LinkerArgString;
+      LinkerArgTwine.toVector(LinkerArgString);
+      CmdArgs.push_back(Args.MakeArgString(LinkerArgString));
+    } else {
+      // ignore invalid AMDGPU target, use auto
+      C.getDriver().Diag(diag::warn_amdgpu_target_invalid) << AMDGPUTarget;
+      CmdArgs.push_back("--amdgpu-target=auto");
+    }
+  }
+
   Link::ConstructLinkerJob(C, JA, Output, Inputs, Args, LinkingOutput, CmdArgs);
   const char *Exec = getToolChain().getDriver().getCXXAMPLinkProgramPath();
   C.addCommand(new Command(JA, *this, Exec, CmdArgs));

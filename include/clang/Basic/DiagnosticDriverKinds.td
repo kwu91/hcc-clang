@@ -135,6 +135,7 @@ def remark_drv_target_file_found : Remark<
   "Identified OpenMP target file '%0' to be used in the '%1' toolchain.">, 
   InGroup<OpenMPOffloading>;
 
+def warn_amdgpu_target_invalid : Warning<"-amdgpu-target argument '%0' is not recognized; using auto instead">, InGroup<InvalidCommandLineArgument>;
 def warn_drv_O0_ignored_for_GPU : Warning<"-O0 is ignored in GPU compilation path">, InGroup<InvalidCommandLineArgument>;
 def warn_drv_O1_ignored_for_GPU : Warning<"-O1 is ignored in GPU compilation path">, InGroup<InvalidCommandLineArgument>;
 def warn_O4_is_O3 : Warning<"-O4 is equivalent to -O3">, InGroup<Deprecated>;
